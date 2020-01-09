@@ -341,24 +341,36 @@ class Recorder(threading.Thread):
                 if tries != 1:
                     time.sleep(CONNECT_RETRY_WAIT)
                 try:
-                    with session_scope(session=self.get_session()) as session:
-                        try:
-                            dbevent = Events.from_event(event)
-                            session.add(dbevent)
-                            session.flush()
-                        except (TypeError, ValueError):
-                            _LOGGER.warning("Event is not JSON serializable: %s", event)
+                    with session_scope(session=self.get_session()) as session:	
+                        new_state = None
+                        old_state = None
 
                         if event.event_type == EVENT_STATE_CHANGED:
+                            old_state = event.data.get('old_state')
+                            new_state = event.data.get('new_state')
+
+                        if event.event_type != EVENT_STATE_CHANGED or (old_state is None or new_state is None or old_state.state != new_state.state):
                             try:
-                                dbstate = States.from_event(event)
-                                dbstate.event_id = dbevent.event_id
-                                session.add(dbstate)
+                                dbevent = Events.from_event(event)
+                                session.add(dbevent)
+                                session.flush()
                             except (TypeError, ValueError):
                                 _LOGGER.warning(
-                                    "State is not JSON serializable: %s",
-                                    event.data.get("new_state"),
-                                )
+                                    "Event is not JSON serializable: %s", event)
+
+                        if event.event_type == EVENT_STATE_CHANGED:
+                            if (old_state is None or new_state is None or old_state.state != new_state.state):
+                                try:
+                                    dbstate = States.from_event(event)
+                                    dbstate.event_id = dbevent.event_id
+                                    session.add(dbstate)
+                                except (TypeError, ValueError):
+                                    _LOGGER.warning(
+                                        "State is not JSON serializable: %s",
+                                        event.data.get('new_state'))
+                            else:
+                                _LOGGER.warning(
+                                    'Ignoring state change event with unchanged state')
 
                     updated = True
 
